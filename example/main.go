@@ -8,13 +8,13 @@ import (
 )
 
 type Pet struct {
-	Id   int    `json:"id"`
+	Id   int64  `json:"id"`
 	Name string `json:"name"`
 	Kind string `json:"kind"`
 }
 
 type PetReq struct {
-	Id int `json:"id"`
+	Id int64 `json:"id"`
 }
 
 var pets = []Pet{{1, "Linda_pp", "犬"}, {2, "supermomonga", "ももんが"}}
@@ -39,7 +39,7 @@ func add(w http.ResponseWriter, r *http.Request, req *Pet) (*Pet, error) {
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, fmt.Errorf("invalid request: name is require")
 	}
-	req.Id = len(pets) + 1
+	req.Id = int64(len(pets)) + 1
 	pets = append(pets, *req)
 	return req, nil
 }
