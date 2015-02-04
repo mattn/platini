@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>platini</title>
+	<script src="http://code.jquery.com/jquery-1.10.1.min.js"></script>
+	<script>
+	$(function() {
+		$.getJSON("/users/", function(data) {
+			$.each(data, function(i, e) {
+				$('<li/>').text(e.name + ' (' + e.kind + ')').appendTo('#users')
+			})
+		});
+
+		$('#add').click(function() {
+			$.post("/users/", {"name": $('#name').val(), "kind": $("#kind").val()})
+		});
+	})
+	</script>
+</head>
+<body>
+    
+</body>
+<ul id="users">
+</ul>
+<hr>
+<label for="name">Name:</label><br>
+<input id="name" type="text" name=""><br>
+<label for="kind">Kind:</label><br>
+<input id="kind" type="text" name=""><br>
+<br>
+<input id="add" type="button" value="add">
+</html>
