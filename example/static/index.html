@@ -6,14 +6,29 @@
 	<script src="http://code.jquery.com/jquery-1.10.1.min.js"></script>
 	<script>
 	$(function() {
-		$.getJSON("/users/", function(data) {
-			$.each(data, function(i, e) {
-				$('<li/>').text(e.name + ' (' + e.kind + ')').appendTo('#users')
-			})
-		});
+		function reload() {
+			$('#users').empty();
+			$.getJSON("/users/", function(data) {
+				$.each(data, function(i, e) {
+					$('<li/>').text(e.name + ' (' + e.kind + ')').appendTo('#users')
+				})
+			});
+		}
+
+		reload();
 
 		$('#add').click(function() {
-			$.post("/users/", {"name": $('#name').val(), "kind": $("#kind").val()})
+			$.ajax({
+				type: "POST",
+				url: "/users/",
+				data: {"name": $('#name').val(), "kind": $("#kind").val()},
+				success: function(e) {
+					reload();
+				},
+				error: function(e) {
+					alert(e.responseText);
+				}
+			});
 		});
 	})
 	</script>
