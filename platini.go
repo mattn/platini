@@ -13,50 +13,72 @@ var (
 	re = regexp.MustCompile(`^:[a-zA-Z][a-zA-Z0-9_]*$`)
 	wt = reflect.TypeOf((*http.ResponseWriter)(nil)).Elem()
 	rt = reflect.TypeOf((**http.Request)(nil)).Elem()
+	et = reflect.TypeOf((*error)(nil)).Elem()
 )
 
 type route struct {
-	method string
-	path   string
-	names  []string
-	fv     reflect.Value
-	ft     reflect.Type
-	in     int
-	out    int
+	method  string
+	path    string
+	names   []string
+	fv      reflect.Value
+	ft      reflect.Type
+	in      int
+	out     int
+	params  int
+	handler http.Handler
 }
 
 type Mux struct {
 	routes []route
 }
 
-var defaultMux Mux
+var DefaultMux = new(Mux)
 
-func handler(w http.ResponseWriter, r *http.Request) {
+func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var rp *route
-	for _, route := range defaultMux.routes {
-		if route.method == r.Method {
+	var values []string
+	for _, route := range m.routes {
+		if route.params == 0 && route.method == r.Method && r.RequestURI == route.path {
 			rp = &route
 			break
 		}
 	}
 	if rp == nil {
-		return
+	routeLoop:
+		for _, route := range m.routes {
+			if route.params > 0 && route.method == r.Method {
+				match := false
+				v := make([]string, len(route.names))
+				for i, p := range strings.Split(r.RequestURI, "/") {
+					if p == "" {
+						continue
+					}
+					if i >= len(route.names) {
+						break
+					}
+					if route.names[i] != "" {
+						v[i] = p
+						match = true
+					}
+				}
+				if match {
+					rp = &route
+					values = v
+					break routeLoop
+				}
+			}
+		}
 	}
-	values := make([]string, len(rp.names))
-	match := false
-	for i, p := range strings.Split(r.RequestURI, "/") {
-		if p == "" {
-			continue
-		}
-		if i >= len(rp.names) {
-			break
-		}
-		if rp.names[i] != "" {
-			values[i] = p
-			match = true
+	if rp == nil {
+		for _, route := range m.routes {
+			if route.method == "" && route.handler != nil {
+				route.handler.ServeHTTP(w, r)
+				return
+			}
 		}
 	}
-	if !match {
+	if rp == nil {
+		http.NotFound(w, r)
 		return
 	}
 	args := make([]reflect.Value, rp.in)
@@ -109,41 +131,54 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rl := rp.fv.Call(args)
-	if len(rl) > 0 {
-		res := make([]interface{}, len(rl))
-		for i := 0; i < rp.out; i++ {
-			v := rl[i].Interface()
-			if err, ok := v.(error); ok {
-				panic(err)
-			}
-			res[i] = v
+	if rp.out == 0 {
+		return
+	}
+	if rp.ft.Out(rp.out-1) == et {
+		if !rl[rp.out-1].IsNil() {
+			http.Error(w, rl[rp.out-1].Interface().(error).Error(), http.StatusInternalServerError)
+			return
 		}
-		if len(rl) == 1 {
-			if res[0] != nil {
+		rl = rl[:rp.out-1]
+		rp.out--
+	}
+	if rp.out == 0 {
+		return
+	}
+	res := []interface{}{}
+	for i := 0; i < rp.out; i++ {
+		res = append(res, rl[i].Interface())
+	}
+	if len(res) == 1 {
+		if res[0] != nil {
+			if s, ok := res[0].(string); ok {
+				w.Write([]byte(s))
+			} else if b, ok := res[0].([]byte); ok {
+				w.Write(b)
+			} else {
 				json.NewEncoder(w).Encode(res[0])
 			}
-		} else {
-			json.NewEncoder(w).Encode(res)
 		}
+	} else {
+		json.NewEncoder(w).Encode(res)
 	}
 }
 
-func HandleFunc(method, path string, fn interface{}) {
+func (m *Mux) registerHandler(method, path string, fn interface{}) {
 	names := strings.Split(path, "/")
+	params := 0
 	for i := 0; i < len(names); i++ {
 		if re.MatchString(names[i]) {
 			names[i] = names[i][1:]
+			params++
 		} else {
 			names[i] = ""
 		}
 	}
 
-	if len(defaultMux.routes) == 0 {
-		http.HandleFunc("/", handler)
-	}
 	fv := reflect.ValueOf(fn)
 	ft := fv.Type()
-	defaultMux.routes = append(defaultMux.routes, route{
+	m.routes = append(m.routes, route{
 		method: method,
 		path:   path,
 		names:  names,
@@ -151,5 +186,33 @@ func HandleFunc(method, path string, fn interface{}) {
 		ft:     ft,
 		in:     ft.NumIn(),
 		out:    ft.NumOut(),
+		params: params,
 	})
+}
+
+func (m *Mux) Get(path string, fn interface{}) {
+	m.registerHandler("GET", path, fn)
+}
+
+func (m *Mux) Post(path string, fn interface{}) {
+	m.registerHandler("POST", path, fn)
+}
+
+func (m *Mux) Handle(path string, handler http.Handler) {
+	m.routes = append(m.routes, route{
+		path:    path,
+		handler: handler,
+	})
+}
+
+func Get(path string, fn interface{}) {
+	DefaultMux.Get(path, fn)
+}
+
+func Post(path string, fn interface{}) {
+	DefaultMux.Post(path, fn)
+}
+
+func Handle(path string, handler http.Handler) {
+	DefaultMux.Handle(path, handler)
 }
