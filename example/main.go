@@ -1,34 +1,51 @@
 package main
 
 import (
+	"fmt"
 	"github.com/mattn/platini"
 	"net/http"
+	"strings"
 )
 
 type Pet struct {
-	Id   int
-	Name string
-	Kind string
+	Id   int    `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
 }
 
 type PetReq struct {
-	Id int
+	Id int `json:"id"`
 }
 
-func parsedHandler1(req *PetReq) (*Pet, error) {
-	//return db.Get(req.Id)
-	println("Id:", req.Id)
-	return &Pet{1, "Linda_pp", "犬"}, nil
+func list() ([]Pet, error) {
+	return []Pet{{1, "Linda_pp", "犬"}, {2, "supermomonga", "ももんが"}}, nil
 }
 
-func parsedHandler2(w http.ResponseWriter, r *http.Request, req *Pet) (*Pet, error) {
-	// w, r はCookie読み書きするのに必要な時もある…(闇
-	//return db.Put(req)
+func get(req *PetReq) (*Pet, error) {
+	switch req.Id {
+	case 1:
+		return &Pet{1, "Linda_pp", "犬"}, nil
+	case 2:
+		return &Pet{2, "supermomonga", "モモンガ"}, nil
+	default:
+		return nil, fmt.Errorf("user not found: id=%d", req.Id)
+	}
+}
+
+func add(w http.ResponseWriter, r *http.Request, req *Pet) (*Pet, error) {
+	if strings.TrimSpace(req.Kind) == "" {
+		return nil, fmt.Errorf("invalid request: kind is require")
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return nil, fmt.Errorf("invalid request: name is require")
+	}
 	return &Pet{1, "Linda_pp", "犬"}, nil
 }
 
 func main() {
-	platini.HandleFunc("GET", "/:Id", parsedHandler1) // いい感じにパースしてくれる
-	platini.HandleFunc("POST", "/", parsedHandler2)   // ハンドラを登録してウェブページを表示させる
-	http.ListenAndServe(":8080", nil)
+	platini.Get("/users/:Id", get)
+	platini.Get("/users/", list)
+	platini.Post("/users/", add)
+	platini.Handle("/", http.FileServer(http.Dir("static")))
+	http.ListenAndServe(":8080", platini.DefaultMux)
 }
