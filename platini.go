@@ -36,7 +36,7 @@ var DefaultMux = new(Mux)
 
 func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var rp *route
-	var values []string
+	var values map[string]string
 	for _, route := range m.routes {
 		if route.params == 0 && route.method == r.Method && r.RequestURI == route.path {
 			rp = &route
@@ -44,11 +44,20 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if rp == nil {
+		for _, route := range m.routes {
+			if route.params == 0 && route.method == r.Method {
+				if route.path == r.RequestURI {
+					rp = &route
+				}
+			}
+		}
+	}
+	if rp == nil {
 	routeLoop:
 		for _, route := range m.routes {
 			if route.params > 0 && route.method == r.Method {
+				v := map[string]string{}
 				match := false
-				v := make([]string, len(route.names))
 				for i, p := range strings.Split(r.RequestURI, "/") {
 					if p == "" {
 						continue
@@ -57,7 +66,7 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						break
 					}
 					if route.names[i] != "" {
-						v[i] = p
+						v[route.names[i]] = p
 						match = true
 					}
 				}
@@ -81,6 +90,17 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if r.Method == "POST" {
+		if err := r.ParseForm(); err != nil {
+			return
+		}
+		values = map[string]string{}
+		for k, vv := range r.PostForm {
+			if len(vv) > 0 {
+				values[k] = vv[0]
+			}
+		}
+	}
 	args := make([]reflect.Value, rp.in)
 	for i := 0; i < rp.in; i++ {
 		it := rp.ft.In(i)
@@ -98,12 +118,12 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				for f := 0; f < at.NumField(); f++ {
 					tag := at.Field(f).Tag.Get("json")
 					done := false
-					for ni, name := range rp.names {
-						if name == "" || tag != name {
+					for k, v := range values {
+						if k == "" || tag != k {
 							continue
 						}
 						field := args[i].Elem().Field(f)
-						vv := reflect.ValueOf(values[ni])
+						vv := reflect.ValueOf(v)
 						if vv.Type().ConvertibleTo(field.Type()) {
 							field.Set(vv.Convert(field.Type()))
 							done = true
@@ -111,18 +131,18 @@ func (m *Mux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					}
 					if !done {
 						fnm := at.Field(f).Name
-						for ni, name := range rp.names {
-							if name == "" || strings.Title(name) != strings.Title(fnm) {
+						for k, v := range values {
+							if k == "" || strings.Title(k) != strings.Title(fnm) {
 								continue
 							}
 							field := args[i].Elem().FieldByName(fnm)
 							switch field.Kind() {
 							case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64:
-								if nv, err := strconv.Atoi(values[ni]); err == nil {
+								if nv, err := strconv.Atoi(v); err == nil {
 									field.Set(reflect.ValueOf(nv).Convert(field.Type()))
 								}
 							case reflect.String:
-								field.Set(reflect.ValueOf(values[ni]))
+								field.Set(reflect.ValueOf(v))
 							}
 						}
 					}
